@@ -469,6 +469,9 @@ public class ObjectiveCImplementationGenerator extends ObjectiveCSourceFileGener
       newline();
       syncLineNumbers(m.getName());  // avoid doc-comment
       print(super.methodDeclaration(m) + " " + reindent(methodBody) + "\n");
+      if (Options.printNamedParameterMethods() && !m.getParameters().isEmpty()) {
+        print(super.methodDeclarationNamedParameters(m) + " " + reindent(methodBody) + "\n");
+      }
     }
   }
 
@@ -534,11 +537,19 @@ public class ObjectiveCImplementationGenerator extends ObjectiveCSourceFileGener
     newline();
     syncLineNumbers(m.getName());  // avoid doc-comment
     if (invokedConstructors.contains(methodKey(binding))) {
-      print(super.constructorDeclaration(m, true) + " " + reindent(methodBody) + "\n\n");
-      print(super.constructorDeclaration(m, false) + " {\n"
-          + "  return " + generateStatement(createInnerConstructorInvocation(m), false) + ";\n}\n");
+      println(super.constructorDeclaration(m, true) + " " + reindent(methodBody) + "\n");
+      println(super.constructorDeclaration(m, false) + " {\n"
+          + "  return " + generateStatement(createInnerConstructorInvocation(m), false) + ";\n}");
+      if (Options.printNamedParameterMethods() && !m.getParameters().isEmpty()) {
+        println(super.constructorDeclarationNamedParameters(m, true) + " " + reindent(methodBody) + "\n");
+        println(super.constructorDeclarationNamedParameters(m, false) + " {\n"
+            + "  return " + generateStatement(createInnerConstructorInvocation(m), false) + ";\n}");
+      }
     } else {
-      print(super.constructorDeclaration(m, false) + " " + reindent(methodBody) + "\n");
+      println(super.constructorDeclaration(m, false) + " " + reindent(methodBody));
+      if (Options.printNamedParameterMethods() && !m.getParameters().isEmpty()) {
+        println(super.constructorDeclarationNamedParameters(m, false) + " " + reindent(methodBody));
+      }
     }
   }
 

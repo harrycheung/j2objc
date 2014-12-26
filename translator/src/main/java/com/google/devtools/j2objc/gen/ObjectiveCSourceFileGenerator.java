@@ -19,6 +19,7 @@ package com.google.devtools.j2objc.gen;
 import com.google.common.base.Function;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Maps;
 import com.google.devtools.j2objc.Options;
 import com.google.devtools.j2objc.ast.AbstractTypeDeclaration;
 import com.google.devtools.j2objc.ast.Annotation;
@@ -53,6 +54,7 @@ import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.core.dom.Modifier;
 
 import java.text.BreakIterator;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -64,6 +66,8 @@ import java.util.Locale;
  * @author Tom Ball
  */
 public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator {
+
+  protected final HashMap<String, ITypeBinding[]> namedParameterMethods = Maps.newHashMap();
 
   /**
    * Create a new generator.
@@ -248,6 +252,9 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
    * Create an Objective-C method declaration string.
    */
   protected String methodDeclaration(MethodDeclaration m) {
+    return methodDeclaration(m, false, null);
+  }
+  protected String methodDeclaration(MethodDeclaration m, boolean namedParams, ITypeBinding[] previousParams) {
     assert !m.isConstructor();
     StringBuffer sb = new StringBuffer();
     boolean isStatic = Modifier.isStatic(m.getModifiers());
@@ -256,18 +263,29 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
     String baseDeclaration = String.format("%c (%s)%s", isStatic ? '+' : '-',
         NameTable.getObjCType(binding.getReturnType()), methodName);
     sb.append(baseDeclaration);
-    parametersDeclaration(binding, m.getParameters(), baseDeclaration, sb);
+    parametersDeclaration(binding, m.getParameters(), baseDeclaration, sb, namedParams, previousParams);
     return sb.toString();
+  }
+  protected String methodDeclarationNamedParameters(MethodDeclaration m) {
+    String methodDeclaration = this.methodDeclaration(m, true, null);
+    String methodSig = methodDeclaration.replaceAll("\\([\\w *]+\\)", "");
+    if (!namedParameterMethods.containsKey(methodSig)) {
+      namedParameterMethods.put(methodSig, m.getMethodBinding().getParameterTypes());
+      return methodDeclaration;
+    }
+    return this.methodDeclaration(m, true, namedParameterMethods.get(methodSig));
   }
 
   /**
    * Create an Objective-C constructor declaration string.
    */
   protected String constructorDeclaration(MethodDeclaration m) {
-    return constructorDeclaration(m, /* isInner */ false);
+    return constructorDeclaration(m, /* isInner */ false, false, null);
   }
-
   protected String constructorDeclaration(MethodDeclaration m, boolean isInner) {
+    return constructorDeclaration(m, isInner, false, null);
+  }
+  protected String constructorDeclaration(MethodDeclaration m, boolean isInner, boolean namedParams, ITypeBinding[] previousParams) {
     assert m.isConstructor();
     StringBuffer sb = new StringBuffer();
     IMethodBinding binding = m.getMethodBinding();
@@ -276,8 +294,17 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
       baseDeclaration += NameTable.getFullName(binding.getDeclaringClass());
     }
     sb.append(baseDeclaration);
-    parametersDeclaration(binding, m.getParameters(), baseDeclaration, sb);
+    parametersDeclaration(binding, m.getParameters(), baseDeclaration, sb, namedParams, previousParams);
     return sb.toString();
+  }
+  protected String constructorDeclarationNamedParameters(MethodDeclaration m, boolean isInner) {
+    String constructorDeclaration = this.constructorDeclaration(m, isInner, true, null);
+    String methodSig = constructorDeclaration.replaceAll("\\([\\w *]+\\)", "");
+    if (!namedParameterMethods.containsKey(methodSig)) {
+      namedParameterMethods.put(methodSig, m.getMethodBinding().getParameterTypes());
+      return constructorDeclaration;
+    }
+    return this.constructorDeclaration(m, isInner, true, namedParameterMethods.get(methodSig));
   }
 
   /**
@@ -305,8 +332,12 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
     return sb.toString();
   }
 
-  private void parametersDeclaration(IMethodBinding method, List<SingleVariableDeclaration> params,
-      String baseDeclaration, StringBuffer sb) throws AssertionError {
+  private void parametersDeclaration(IMethodBinding method,
+                                     List<SingleVariableDeclaration> params,
+                                     String baseDeclaration,
+                                     StringBuffer sb,
+                                     boolean namedParam,
+                                     ITypeBinding[] previousParams) throws AssertionError {
     method = BindingUtil.getOriginalMethodBinding(method);
     if (!params.isEmpty()) {
       ITypeBinding[] parameterTypes = method.getParameterTypes();
@@ -314,8 +345,25 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
       int nParams = params.size();
       for (int i = 0; i < nParams; i++) {
         SingleVariableDeclaration param = params.get(i);
-        ITypeBinding typeBinding = parameterTypes[i];
-        String keyword = NameTable.parameterKeyword(typeBinding);
+        String keyword;
+        if (namedParam) {
+          String type = "";
+          if (previousParams != null) {
+            //System.out.println("getName: " + param.getName());
+            //System.out.println("current: " + parameterTypes[i]);
+            //System.out.println("previous: " + previousParams[i]);
+            if (parameterTypes[i] != previousParams[i]) {
+              type = NameTable.parameterKeyword(parameterTypes[i], false);
+            }
+          }
+          keyword = param.getVariableBinding().getName() + type;
+          if (first) {
+            keyword = "with" + NameTable.capitalize(keyword);
+          }
+        } else {
+          ITypeBinding typeBinding = parameterTypes[i];
+          keyword = NameTable.parameterKeyword(typeBinding);
+        }
         if (first) {
           sb.append(NameTable.capitalize(keyword));
           baseDeclaration += keyword;
@@ -539,6 +587,18 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
       print(" " + DEPRECATED_ATTRIBUTE);
     }
     println(";");
+    if (Options.printNamedParameterMethods() && !m.getParameters().isEmpty()) {
+      print(methodDeclarationNamedParameters(m));
+      methodName = NameTable.getName(m.getMethodBinding());
+      if (needsObjcMethodFamilyNoneAttribute(methodName)) {
+        print(" OBJC_METHOD_FAMILY_NONE");
+      }
+
+      if (needsDeprecatedAttribute(m.getAnnotations())) {
+        print(" " + DEPRECATED_ATTRIBUTE);
+      }
+      println(";");
+    }
   }
 
   protected boolean needsObjcMethodFamilyNoneAttribute(String name) {
