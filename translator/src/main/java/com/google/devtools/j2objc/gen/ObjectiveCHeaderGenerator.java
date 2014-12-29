@@ -402,7 +402,7 @@ public class ObjectiveCHeaderGenerator extends ObjectiveCSourceFileGenerator {
     newline();
     printDocComment(m.getJavadoc());
     println(super.constructorDeclaration(m) + ";");
-    if (Options.printNamedParameterMethods() && !m.getParameters().isEmpty()) {
+    if (Options.printNamedParameters() && !m.getParameters().isEmpty()) {
       println(super.constructorDeclarationNamedParameters(m, false) + ";");
     }
   }

@@ -19,7 +19,6 @@ package com.google.devtools.j2objc.gen;
 import com.google.common.base.Function;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
 import com.google.devtools.j2objc.Options;
 import com.google.devtools.j2objc.ast.AbstractTypeDeclaration;
 import com.google.devtools.j2objc.ast.Annotation;
@@ -48,13 +47,13 @@ import com.google.devtools.j2objc.types.IOSParameter;
 import com.google.devtools.j2objc.util.BindingUtil;
 import com.google.devtools.j2objc.util.NameTable;
 
+import org.eclipse.core.internal.utils.ArrayIterator;
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.ITypeBinding;
 import org.eclipse.jdt.core.dom.IVariableBinding;
 import org.eclipse.jdt.core.dom.Modifier;
 
 import java.text.BreakIterator;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -66,8 +65,6 @@ import java.util.Locale;
  * @author Tom Ball
  */
 public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator {
-
-  protected final HashMap<String, ITypeBinding[]> namedParameterMethods = Maps.newHashMap();
 
   /**
    * Create a new generator.
@@ -252,9 +249,9 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
    * Create an Objective-C method declaration string.
    */
   protected String methodDeclaration(MethodDeclaration m) {
-    return methodDeclaration(m, false, null);
+    return methodDeclaration(m, false, false);
   }
-  protected String methodDeclaration(MethodDeclaration m, boolean namedParams, ITypeBinding[] previousParams) {
+  protected String methodDeclaration(MethodDeclaration m, boolean namedParams, boolean withType) {
     assert !m.isConstructor();
     StringBuffer sb = new StringBuffer();
     boolean isStatic = Modifier.isStatic(m.getModifiers());
@@ -263,29 +260,36 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
     String baseDeclaration = String.format("%c (%s)%s", isStatic ? '+' : '-',
         NameTable.getObjCType(binding.getReturnType()), methodName);
     sb.append(baseDeclaration);
-    parametersDeclaration(binding, m.getParameters(), baseDeclaration, sb, namedParams, previousParams);
+    parametersDeclaration(binding, m.getParameters(), baseDeclaration, sb, namedParams, withType);
     return sb.toString();
   }
   protected String methodDeclarationNamedParameters(MethodDeclaration m) {
-    String methodDeclaration = this.methodDeclaration(m, true, null);
-    String methodSig = methodDeclaration.replaceAll("\\([\\w *]+\\)", "");
-    if (!namedParameterMethods.containsKey(methodSig)) {
-      namedParameterMethods.put(methodSig, m.getMethodBinding().getParameterTypes());
-      return methodDeclaration;
+    IMethodBinding binding = m.getMethodBinding();
+    IMethodBinding[] declaredMethods = binding.getDeclaringClass().getDeclaredMethods();
+    Iterator<IMethodBinding> iter = new ArrayIterator<IMethodBinding>(declaredMethods);
+    boolean foundOverload = false;
+    while (iter.hasNext()) {
+      IMethodBinding declaredMethod = iter.next();
+      if (declaredMethod != binding &&
+          declaredMethod.getName().equals(binding.getName()) &&
+          declaredMethod.getParameterTypes().length == binding.getParameterTypes().length) {
+        foundOverload = true;
+        break;
+      }
     }
-    return this.methodDeclaration(m, true, namedParameterMethods.get(methodSig));
+    return this.methodDeclaration(m, true, foundOverload);
   }
 
   /**
    * Create an Objective-C constructor declaration string.
    */
   protected String constructorDeclaration(MethodDeclaration m) {
-    return constructorDeclaration(m, /* isInner */ false, false, null);
+    return constructorDeclaration(m, /* isInner */ false, false, false);
   }
   protected String constructorDeclaration(MethodDeclaration m, boolean isInner) {
-    return constructorDeclaration(m, isInner, false, null);
+    return constructorDeclaration(m, isInner, false, false);
   }
-  protected String constructorDeclaration(MethodDeclaration m, boolean isInner, boolean namedParams, ITypeBinding[] previousParams) {
+  protected String constructorDeclaration(MethodDeclaration m, boolean isInner, boolean namedParams, boolean withType) {
     assert m.isConstructor();
     StringBuffer sb = new StringBuffer();
     IMethodBinding binding = m.getMethodBinding();
@@ -294,17 +298,24 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
       baseDeclaration += NameTable.getFullName(binding.getDeclaringClass());
     }
     sb.append(baseDeclaration);
-    parametersDeclaration(binding, m.getParameters(), baseDeclaration, sb, namedParams, previousParams);
+    parametersDeclaration(binding, m.getParameters(), baseDeclaration, sb, namedParams, withType);
     return sb.toString();
   }
   protected String constructorDeclarationNamedParameters(MethodDeclaration m, boolean isInner) {
-    String constructorDeclaration = this.constructorDeclaration(m, isInner, true, null);
-    String methodSig = constructorDeclaration.replaceAll("\\([\\w *]+\\)", "");
-    if (!namedParameterMethods.containsKey(methodSig)) {
-      namedParameterMethods.put(methodSig, m.getMethodBinding().getParameterTypes());
-      return constructorDeclaration;
+    IMethodBinding binding = m.getMethodBinding();
+    IMethodBinding[] declaredMethods = binding.getDeclaringClass().getDeclaredMethods();
+    Iterator<IMethodBinding> iter = new ArrayIterator<IMethodBinding>(declaredMethods);
+    boolean foundOverload = false;
+    while (iter.hasNext()) {
+      IMethodBinding declaredMethod = iter.next();
+      if (declaredMethod != binding &&
+          declaredMethod.getName().equals(binding.getName()) &&
+          declaredMethod.getParameterTypes().length == binding.getParameterTypes().length) {
+        foundOverload = true;
+        break;
+      }
     }
-    return this.constructorDeclaration(m, isInner, true, namedParameterMethods.get(methodSig));
+    return this.constructorDeclaration(m, isInner, true, foundOverload);
   }
 
   /**
@@ -336,8 +347,8 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
                                      List<SingleVariableDeclaration> params,
                                      String baseDeclaration,
                                      StringBuffer sb,
-                                     boolean namedParam,
-                                     ITypeBinding[] previousParams) throws AssertionError {
+                                     boolean namedParams,
+                                     boolean withType) throws AssertionError {
     method = BindingUtil.getOriginalMethodBinding(method);
     if (!params.isEmpty()) {
       ITypeBinding[] parameterTypes = method.getParameterTypes();
@@ -346,16 +357,8 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
       for (int i = 0; i < nParams; i++) {
         SingleVariableDeclaration param = params.get(i);
         String keyword;
-        if (namedParam) {
-          String type = "";
-          if (previousParams != null) {
-            //System.out.println("getName: " + param.getName());
-            //System.out.println("current: " + parameterTypes[i]);
-            //System.out.println("previous: " + previousParams[i]);
-            if (parameterTypes[i] != previousParams[i]) {
-              type = NameTable.parameterKeyword(parameterTypes[i], false);
-            }
-          }
+        if (namedParams) {
+          String type = withType ? NameTable.parameterKeyword(parameterTypes[i], false) : "";
           keyword = param.getVariableBinding().getName() + type;
           if (first) {
             keyword = "with" + NameTable.capitalize(keyword);
@@ -587,7 +590,7 @@ public abstract class ObjectiveCSourceFileGenerator extends SourceFileGenerator 
       print(" " + DEPRECATED_ATTRIBUTE);
     }
     println(";");
-    if (Options.printNamedParameterMethods() && !m.getParameters().isEmpty()) {
+    if (Options.printNamedParameters() && !m.getParameters().isEmpty()) {
       print(methodDeclarationNamedParameters(m));
       methodName = NameTable.getName(m.getMethodBinding());
       if (needsObjcMethodFamilyNoneAttribute(methodName)) {

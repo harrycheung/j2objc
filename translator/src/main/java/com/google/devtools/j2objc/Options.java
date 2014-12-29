@@ -82,7 +82,7 @@ public class Options {
   // TODO(tball): set true again when native code accessing private Java methods is fixed.
   private static boolean hidePrivateMembers = false;
   private static int batchTranslateMaximum = 0;
-  private static boolean printNamedParameterMethods = false;
+  private static boolean printNamedParameters = false;
 
   private static File proGuardUsageFile = null;
 
@@ -320,9 +320,9 @@ public class Options {
       } else if (arg.equals("--no-hide-private-members")) {
         hidePrivateMembers = false;
       } else if (arg.equals("--named-parameters")) {
-        printNamedParameterMethods = true;
+        printNamedParameters = true;
       } else if (arg.equals("--no-named-parameters")) {
-        printNamedParameterMethods = false;
+        printNamedParameters = false;
       } else if (arg.startsWith("-h") || arg.equals("--help")) {
         help(false);
       } else if (arg.startsWith("-")) {
@@ -737,9 +737,12 @@ public class Options {
     finalMethodsAsFunctions = false;
   }
 
-  public static boolean printNamedParameterMethods() {
-    return printNamedParameterMethods;
+  public static boolean printNamedParameters() {
+    return printNamedParameters;
   }
+
+  @VisibleForTesting
+  public static void setNamedParameters(boolean value) { printNamedParameters = value; }
 
   public static boolean removeClassMethods() {
     return removeClassMethods;

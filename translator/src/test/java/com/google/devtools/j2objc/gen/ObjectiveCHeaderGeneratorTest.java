@@ -36,6 +36,7 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
   protected void tearDown() throws Exception {
     Options.resetDeprecatedDeclarations();
     Options.setDocCommentsEnabled(false);
+    Options.setNamedParameters(false);
     super.tearDown();
   }
 
@@ -645,5 +646,45 @@ public class ObjectiveCHeaderGeneratorTest extends GenerationTest {
         "@brief Method javadoc.",
         "@param foo Unused.",
         "@return always false.");
+  }
+
+  public void testNamedParameters() throws IOException {
+    Options.setNamedParameters(true);
+    String source = ""
+        + "public class Dealership { "
+        + "  public Dealership(String name) { }"
+        + "  public Dealership(String name, int numOfCars) { }"
+        + "  public Dealership(String name, double numOfCars) { }"
+        + "  public void noOverload(java.util.Date today, String str) { }"
+        + "  public void addCar(int year, String make, int mileage) { }"
+        + "  public void addCar(java.util.Date year, String make, int mileage) { }"
+        + "}";
+    String translation = translateSourceFile(source, "Dealership", "Dealership.h");
+
+    // Named parameters constructor
+    assertTranslation(translation, "- (instancetype)initWithName:(NSString *)name;");
+
+    // Must include type for overloaded constructors
+    assertTranslatedLines(translation,
+        "- (instancetype)initWithNameNSString:(NSString *)name",
+        "numOfCarsInt:(jint)numOfCars;");
+    assertTranslatedLines(translation,
+        "- (instancetype)initWithNameNSString:(NSString *)name",
+        "numOfCarsDouble:(jdouble)numOfCars;");
+
+    // Named parameters method
+    assertTranslatedLines(translation,
+        "- (void)noOverloadWithToday:(JavaUtilDate *)today",
+        "str:(NSString *)str;");
+
+    // Must include type for overloaded methods
+    assertTranslatedLines(translation,
+        "- (void)addCarWithYearInt:(jint)year",
+        "makeNSString:(NSString *)make",
+        "mileageInt:(jint)mileage;");
+    assertTranslatedLines(translation,
+        "- (void)addCarWithYearJavaUtilDate:(JavaUtilDate *)year",
+        "makeNSString:(NSString *)make",
+        "mileageInt:(jint)mileage;");
   }
 }
